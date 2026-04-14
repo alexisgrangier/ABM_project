@@ -1,15 +1,11 @@
 [project]
-name = "lablib"
+name = "SEIRD_ABM"
 version = "0.1.0"
-description = "Machine Learning course code"
+description = "Bayesian agent-based model of infectious disease transmission in an urban center"
 requires-python = "==3.12.*"
 dependencies = [
     "numpy",
     "pandas",
-    "scikit-learn",
     "matplotlib",
     "jupyterlab",
-    "statsmodels",
-    "seaborn",
-    "nltk"
 ]
