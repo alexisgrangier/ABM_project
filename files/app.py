@@ -27,6 +27,9 @@ st.set_page_config(
 st.title("SEIRD Agent-Based Model Simulator")
 st.caption("Bayesian agent-based model of infectious disease transmission in an urban center")
 
+if "playing" not in st.session_state:
+    st.session_state.playing = False
+
 if "model" not in st.session_state:
     st.session_state.model = None
 
@@ -202,27 +205,59 @@ else:
         st.altair_chart(prev_chart, use_container_width=True)
 
     with tab3:
-        st.subheader("Current spatial snapshot")
+        st.subheader("Live spatial animation")
 
-        pos_df = latest_grid_positions(st.session_state.model.individuals)
+        col_ctrl1, col_ctrl2, col_ctrl3 = st.columns([1, 1, 2])
 
-        sample_size = min(2000, len(pos_df))
-        pos_df = pos_df.sample(sample_size, random_state=42)
+        with col_ctrl1:
+            if st.button("▶ Play / ⏸ Pause", use_container_width=True):
+                st.session_state.playing = not st.session_state.get("playing", False)
 
-        scatter = (
-            alt.Chart(pos_df)
-            .mark_circle(size=20, opacity=0.65)
-            .encode(
-                x=alt.X("x:Q", title="X"),
-                y=alt.Y("y:Q", title="Y"),
-                color=alt.Color("state:N", title="State"),
-                tooltip=["agent_id", "x", "y", "state", "at_work", "residence"],
+        with col_ctrl2:
+            tick_delay = st.slider("Speed (sec/tick)", 0.1, 2.0, 0.5, 0.1)
+
+        st.caption(f"Status: {'▶ Playing' if st.session_state.get('playing') else '⏸ Paused'}")
+
+        chart_placeholder = st.empty()
+        info_placeholder = st.empty()
+
+        def render_grid():
+            pos_df = latest_grid_positions(st.session_state.model.individuals)
+            sample_size = min(2000, len(pos_df))
+            pos_df = pos_df.sample(sample_size, random_state=42)
+
+            scatter = (
+                alt.Chart(pos_df)
+                .mark_circle(size=20, opacity=0.65)
+                .encode(
+                    x=alt.X("x:Q", title="X", scale=alt.Scale(domain=[0, 100])),
+                    y=alt.Y("y:Q", title="Y", scale=alt.Scale(domain=[0, 100])),
+                    color=alt.Color("state:N", title="State"),
+                    tooltip=["agent_id", "x", "y", "state", "at_work", "residence"],
+                )
+                .properties(height=600)
             )
-            .properties(height=600)
-        )
+            chart_placeholder.altair_chart(scatter, use_container_width=True)
+            info_placeholder.caption(
+                f"Tick {st.session_state.model.tick} | Day {st.session_state.model.current_day} | Showing {sample_size} agents"
+            )
 
-        st.altair_chart(scatter, use_container_width=True)
-        st.caption(f"Showing a sample of {sample_size} agents.")
+        # Always render current state
+        render_grid()
+
+        # Auto-play loop
+        if st.session_state.get("playing", False):
+            import time
+            while st.session_state.get("playing", False):
+                if st.session_state.model.tick >= TOTAL_TICKS:
+                    st.session_state.playing = False
+                    st.info("Simulation ended.")
+                    break
+
+                st.session_state.model.step()
+                st.session_state.results_df = st.session_state.model.get_results_df()
+                render_grid()
+                time.sleep(tick_delay)
 
     with tab4:
         st.subheader("Raw simulation output")
