@@ -129,7 +129,7 @@ else:
 
         chart = (
             alt.Chart(curve_df)
-            .mark_line()
+            .mark_line(interpolate="step-after")
             .encode(
                 x=alt.X("tick:Q", title="Tick"),
                 y=alt.Y("count:Q", title="Agents"),
@@ -168,9 +168,12 @@ else:
 
         alert_df = prepare_alert_df(df)
 
+        alert_df["alert_level"] = pd.to_numeric(alert_df["alert_level"], errors="coerce")
+        alert_df = alert_df.dropna(subset=["alert_level"])
+
         alert_chart = (
             alt.Chart(alert_df)
-            .mark_step()
+            .mark_line(interpolate="step-after")
             .encode(
                 x=alt.X("tick:Q", title="Tick"),
                 y=alt.Y("alert_level:Q", title="Alert level"),
@@ -181,8 +184,12 @@ else:
 
         st.altair_chart(alert_chart, use_container_width=True)
 
+        prev_df = df[["tick", "day", "seven_day_prev", "alert_state"]].copy()
+        prev_df["seven_day_prev"] = pd.to_numeric(prev_df["seven_day_prev"], errors="coerce")
+        prev_df = prev_df.dropna(subset=["seven_day_prev"])
+
         prev_chart = (
-            alt.Chart(df)
+            alt.Chart(prev_df)
             .mark_line(color="firebrick")
             .encode(
                 x=alt.X("tick:Q", title="Tick"),

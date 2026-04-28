@@ -29,9 +29,6 @@ def prepare_epi_curve_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def prepare_alert_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Map alert states to numeric levels for plotting.
-    """
     mapping = {
         "NO_ALERT": 0,
         "ALERT_1": 1,
@@ -39,8 +36,9 @@ def prepare_alert_df(df: pd.DataFrame) -> pd.DataFrame:
         "ALERT_3": 3,
     }
 
-    out = df[["tick", "day", "alert_state"]].copy()
-    out["alert_level"] = out["alert_state"].map(mapping)
+    out = df[["tick", "day", "alert_state", "seven_day_prev"]].copy()
+    out["alert_level"] = out["alert_state"].map(mapping).fillna(0).astype(int)
+    out["seven_day_prev"] = pd.to_numeric(out["seven_day_prev"], errors="coerce").fillna(0.0)
     return out
 
 
