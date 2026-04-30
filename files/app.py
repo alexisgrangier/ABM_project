@@ -36,8 +36,8 @@ for key, default in [
     ("model",         None),
     ("results_df",    pd.DataFrame()),
     ("initialized",   False),
-    ("posterior_df",  None),   # weighted particles from ABC-SMC
-    ("ppc_envelope",  None),   # pre-computed posterior predictive envelope
+    ("posterior_df",  None),
+    ("ppc_envelope",  None),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -65,13 +65,12 @@ with st.sidebar:
     run_full_clicked = st.button("Run until end",         use_container_width=True)
     reset_clicked    = st.button("Reset",                 use_container_width=True)
 
-    # ── Bayesian section ──────────────────────────────────────────────────
     st.markdown("---")
     st.header("Bayesian calibration")
 
     with st.expander("Load posterior particles", expanded=False):
         st.caption(
-            "Upload the `abc_smc_posterior.csv` produced by the calibration page, "
+            "Upload the abc_smc_posterior.csv produced by the calibration page, "
             "or run a quick ABC below to generate one."
         )
 
@@ -85,7 +84,7 @@ with st.sidebar:
                 }
                 if required.issubset(df_up.columns):
                     st.session_state.posterior_df  = df_up
-                    st.session_state.ppc_envelope  = None   # invalidate old envelope
+                    st.session_state.ppc_envelope  = None
                     st.success(f"Loaded {len(df_up)} particles ✓")
                 else:
                     st.error(f"CSV must contain columns: {required}")
@@ -95,8 +94,7 @@ with st.sidebar:
         st.markdown("---")
         st.caption("**Or** run a minimal ABC-SMC right now (fast, low resolution).")
 
-        quick_particles   = st.slider("Particles",   25,  200, 50,  step=25, key="qp")
-        quick_populations = st.slider("Generations",  2,    5,  3,  step=1,  key="qg")
+        quick_particles   = st.slider("Particles",   50,  200, 50,  step=25, key="qp")
         quick_ticks       = st.slider("Sim ticks",  100,  730, 200, step=50, key="qt")
 
         run_quick_abc = st.button("▶ Run quick ABC-SMC", use_container_width=True)
@@ -107,13 +105,13 @@ with st.sidebar:
 
         n_ppc = st.slider(
             "PPC trajectories to draw", min_value=10, max_value=min(200, n_p),
-            value=min(50, n_p), step=10, key="n_ppc",
+            value=min(20, n_p), step=10, key="n_ppc",
         )
         compute_ppc = st.button("Compute uncertainty bands", use_container_width=True)
     else:
         st.info("No posterior loaded. Upload a CSV or run quick ABC above.")
         compute_ppc = False
-        n_ppc = 50
+        n_ppc = 20
 
 
 # ── Model actions ─────────────────────────────────────────────────────────────
@@ -159,22 +157,19 @@ if run_quick_abc:
             ABCSMCCalibrator,
             compute_summary_statistics,
         )
-        import config.parameters as _params
 
         ref_stats = compute_summary_statistics(
             st.session_state.results_df, int(population_size)
         )
 
-        with st.spinner(
-            f"Running ABC-SMC ({quick_particles} particles × {quick_populations} generations) …"
-        ):
+        with st.spinner("Running ABC-SMC ..."):
             cal = ABCSMCCalibrator(
                 observed_stats  = ref_stats,
                 n_particles     = int(quick_particles),
-                n_populations   = int(quick_populations),
+                n_populations   = 1,
                 run_ticks       = int(quick_ticks),
                 population_size = int(population_size),
-                verbose         = False,
+                verbose         = True,
             )
             posterior = cal.run()
             post_df   = posterior.as_dataframe()
@@ -193,11 +188,6 @@ def _run_ppc(
     pop_size: int,
     n_ticks: int,
 ) -> dict[str, pd.DataFrame]:
-    """
-    Draw n_draws parameter sets from the posterior (weighted), run a full
-    simulation for each, and return a dict of envelope DataFrames keyed by
-    the state columns we want to visualise.
-    """
     import config.parameters as params
     import submodels.transmission as tx
 
@@ -208,7 +198,6 @@ def _run_ppc(
     indices = rng.choice(len(posterior_df), size=n_draws, replace=True, p=weights)
     sampled = posterior_df.iloc[indices].reset_index(drop=True)
 
-    # Collect per-tick trajectories for these columns
     track_cols = ["total_infectious", "susceptible", "exposed", "dead"]
     all_runs: dict[str, list] = {c: [] for c in track_cols}
     tick_index = None
@@ -219,8 +208,6 @@ def _run_ppc(
         "INCUBATION_PERIOD_TICKS": params.INCUBATION_PERIOD_TICKS,
         "INFECTIOUS_PERIOD_TICKS": params.INFECTIOUS_PERIOD_TICKS,
     }
-
-    progress = st.progress(0, text="Running posterior predictive simulations …")
 
     try:
         for i, row in sampled.iterrows():
@@ -241,11 +228,8 @@ def _run_ppc(
 
             for col in track_cols:
                 if col in run_df.columns:
-                    # Align to common tick index
-                    series = run_df.set_index("tick")[col].reindex(tick_index).fillna(method="ffill").values
+                    series = run_df.set_index("tick")[col].reindex(tick_index).ffill().values
                     all_runs[col].append(series)
-
-            progress.progress((i + 1) / n_draws, text=f"PPC run {i + 1}/{n_draws} …")
 
     finally:
         params.BASE_TRANSMISSION_RATE  = orig["BASE_TRANSMISSION_RATE"]
@@ -255,12 +239,9 @@ def _run_ppc(
         tx.spatial_transmission.__defaults__ = (orig["BASE_TRANSMISSION_RATE"],)
         tx.commute_transmission.__defaults__ = (orig["BASE_TRANSMISSION_RATE"],)
 
-    progress.empty()
-
-    # Build envelope DataFrames: tick, median, q025, q975
     envelopes: dict[str, pd.DataFrame] = {}
     for col in track_cols:
-        mat = np.array(all_runs[col])   # shape (n_draws, n_ticks)
+        mat = np.array(all_runs[col])
         if mat.size == 0:
             continue
         envelopes[col] = pd.DataFrame({
@@ -281,13 +262,14 @@ if compute_ppc and st.session_state.posterior_df is not None:
         if st.session_state.model is not None
         else TOTAL_TICKS
     )
-    st.session_state.ppc_envelope = _run_ppc(
-        posterior_df = st.session_state.posterior_df,
-        n_draws      = int(n_ppc),
-        pop_size     = int(population_size),
-        n_ticks      = n_sim_ticks,
-    )
-    st.rerun()
+    with st.spinner("Computing posterior predictive bands ..."):
+        result = _run_ppc(
+            posterior_df = st.session_state.posterior_df,
+            n_draws      = int(n_ppc),
+            pop_size     = int(population_size),
+            n_ticks      = n_sim_ticks,
+        )
+    st.session_state.ppc_envelope = result
 
 
 # ── Main display ──────────────────────────────────────────────────────────────
@@ -312,7 +294,6 @@ else:
         ["Epidemic curves", "Policy", "Grid snapshot", "Raw data"]
     )
 
-    # ── Tab 1: Epidemic curves ────────────────────────────────────────────
     with tab1:
         st.subheader("SEIRD epidemic curves")
 
@@ -350,7 +331,6 @@ else:
         )
         st.altair_chart(incidence_chart, use_container_width=True)
 
-        # ── Posterior predictive bands ────────────────────────────────────
         st.markdown("---")
         st.subheader("Posterior predictive uncertainty")
 
@@ -358,13 +338,11 @@ else:
 
         if envelope is None and st.session_state.posterior_df is None:
             st.info(
-                "Load a posterior in the sidebar to see Bayesian uncertainty bands. "
-                "These show the range of epidemic trajectories consistent with the "
-                "calibrated parameter distribution."
+                "Load a posterior in the sidebar to see Bayesian uncertainty bands."
             )
         elif envelope is None:
             st.info(
-                "Posterior loaded ✓  — press **Compute uncertainty bands** in the "
+                "Posterior loaded ✓ — press **Compute uncertainty bands** in the "
                 "sidebar to generate the predictive envelope."
             )
         else:
@@ -375,22 +353,14 @@ else:
                 "dead":             {"label": "Dead",        "color": "#54a24b"},
             }
 
-            single_run_col = {
-                "total_infectious": "total_infectious",
-                "exposed":          "exposed",
-                "susceptible":      "susceptible",
-                "dead":             "dead",
-            }
-
             for state_key, cfg in state_cfg.items():
                 if state_key not in envelope:
                     continue
 
-                env = envelope[state_key].copy()
+                env   = envelope[state_key].copy()
                 color = cfg["color"]
                 label = cfg["label"]
 
-                # 95% CI band
                 band = (
                     alt.Chart(env)
                     .mark_area(opacity=0.15, color=color)
@@ -400,8 +370,6 @@ else:
                         y2=alt.Y2("q975:Q"),
                     )
                 )
-
-                # IQR band
                 iqr = (
                     alt.Chart(env)
                     .mark_area(opacity=0.25, color=color)
@@ -411,8 +379,6 @@ else:
                         y2=alt.Y2("q75:Q"),
                     )
                 )
-
-                # Posterior median
                 median_line = (
                     alt.Chart(env)
                     .mark_line(color=color, strokeDash=[4, 2], strokeWidth=1.5)
@@ -428,11 +394,11 @@ else:
                     )
                 )
 
-                # Single run (current model)
-                obs_col = single_run_col[state_key]
-                if obs_col in df.columns:
+                if state_key in df.columns:
                     obs_line = (
-                        alt.Chart(df[["tick", obs_col]].rename(columns={obs_col: "value"}))
+                        alt.Chart(
+                            df[["tick", state_key]].rename(columns={state_key: "value"})
+                        )
                         .mark_line(color=color, strokeWidth=2.5)
                         .encode(
                             x="tick:Q",
@@ -452,14 +418,12 @@ else:
 
                 st.altair_chart(combined, use_container_width=True)
 
-            # Small legend explanation
             st.caption(
                 "**Bands**: outer = 95% credible interval, inner = IQR (25–75%).  "
                 "**Dashed line**: posterior median.  "
                 "**Solid line**: current single run."
             )
 
-    # ── Tab 2: Policy ─────────────────────────────────────────────────────
     with tab2:
         st.subheader("Health Ministry policy state")
 
@@ -495,7 +459,6 @@ else:
         )
         st.altair_chart(prev_chart, use_container_width=True)
 
-    # ── Tab 3: Grid snapshot ──────────────────────────────────────────────
     with tab3:
         st.subheader("Live spatial animation")
 
@@ -549,7 +512,6 @@ else:
                 render_grid()
                 time.sleep(tick_delay)
 
-    # ── Tab 4: Raw data ───────────────────────────────────────────────────
     with tab4:
         st.subheader("Raw simulation output")
         st.dataframe(df, use_container_width=True)

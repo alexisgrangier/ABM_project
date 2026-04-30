@@ -8,7 +8,7 @@ Drawn from the ODD Protocol specification.
 POPULATION_SIZE   = 5_000
 GRID_WIDTH        = 100
 GRID_HEIGHT       = 100
-MAX_AGENTS_PER_CELL = 2
+MAX_AGENTS_PER_CELL = 5
 TICKS_PER_DAY     = 2          # 1 tick = 12 hours
 SIMULATION_DAYS   = 365
 TOTAL_TICKS       = TICKS_PER_DAY * SIMULATION_DAYS  # 730
@@ -57,14 +57,14 @@ SENSIBILITY_PRIOR = {
 DOCTOR_VISIT_PROB = 0.60   # probability a symptomatic agent visits a doctor
 
 # ── Epidemiological Parameters ──────────────────────────────────────────────
-BASE_TRANSMISSION_RATE   = 0.015   # β per contact per tick (summer baseline)
+BASE_TRANSMISSION_RATE   = 0.008   # β per contact per tick (summer baseline)
 CONTACT_RADIUS           = 1      # Moore neighbourhood radius (cells)
 INCUBATION_PERIOD_TICKS  = 4      # ~2 days (4 × 12 h ticks)
 ASYMPTOMATIC_FRACTION    = 0.40   # fraction of infectious who never show symptoms
 INFECTIOUS_PERIOD_TICKS  = 10     # ~5 days
 RECOVERY_IMMUNITY_DAYS   = 180    # days of post-infection immunity
-INITIAL_EXPOSED_FRACTION  = 0.002   # ~10 agent
-INITIAL_INFECTED_FRACTION = 0.0002   # ~1 agent
+INITIAL_EXPOSED_FRACTION  = 0.0004   
+INITIAL_INFECTED_FRACTION = 0.0002   
 # ── Seasonal Transmission Modifier ─────────────────────────────────────────
 # sin-based modifier: peaks in Winter (tick 0 = Jan 1)
 SEASONAL_AMPLITUDE = 0.30   # ±30% around baseline
